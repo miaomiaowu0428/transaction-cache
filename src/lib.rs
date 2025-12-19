@@ -1,3 +1,4 @@
+use log::info;
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_config::{RpcTransactionConfig, UiTransactionEncoding};
 use solana_sdk::signature::Signature;
@@ -113,6 +114,7 @@ pub async fn get_tx(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
     }
     drop(cache);
     // fetch with retry
+    info!("feching :{}",sig);
     let mut retry_times = 3;
     let mut last_err = None;
     let mut fetched: Option<TxDetail> = None;
@@ -168,5 +170,5 @@ pub async fn save_cache() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_fetch() {
-    println!("{:#?}",get_tx(&Signature::from_str("374LS5zGJRzBCCHVjUBwgWYcv3U1BLsf5dXzvWRNjtu39egH3z7aV6Gbeb13hfnHDdQFqgY2x13NkbkjMoUrhjeG").unwrap()).await);
+    println!("{:#?}",get_tx(&Signature::from_str("2T3MH4NS7odnBKf7H9N2MQpNg7z4uqVdrd8wsqNxSuVAx6ndWE8XYHkQFxQjMX2EtH4UExohFFLq49Rh35G1R6Yn").unwrap()).await);
 }

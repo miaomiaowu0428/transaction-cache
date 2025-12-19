@@ -5,6 +5,7 @@ use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, EncodedTransactionWithStatusMeta,
 };
 use std::path::Path;
+use std::str::FromStr;
 use std::{collections::HashMap, sync::LazyLock};
 use tokio::fs;
 use tokio::sync::RwLock;
@@ -70,8 +71,20 @@ const LOCAL_CACHE_PATH: &str = "allFetchedTxs.json";
 
 /// 初始化缓存：从本地JSON加载HashMap<Signature, TxDetail>
 async fn init_tx_cache() -> anyhow::Result<()> {
-    if !Path::new(LOCAL_CACHE_PATH).exists() {
+    let path = Path::new(LOCAL_CACHE_PATH);
+    // 新增：文件不存在则创建空的JSON文件（写入{}），并标记已初始化
+    if !path.exists() {
+        // 写入空的JSON对象，避免后续序列化/反序列化报错
+        fs::write(path, "{}").await?;
+        // 标记为已初始化，防止后续重复调用init_tx_cache
+        let mut write = INITED.write().await;
+        *write = true;
+    }
+    let mut write = INITED.write().await;
+    if *write {
         return Ok(());
+    } else {
+        *write = true;
     }
     let content = fs::read_to_string(LOCAL_CACHE_PATH).await?;
     let raw_map: HashMap<String, TxDetail> = serde_json::from_str(&content)?;
@@ -151,4 +164,9 @@ pub async fn save_cache() -> anyhow::Result<()> {
     let content = serde_json::to_string_pretty(&map)?;
     fs::write(LOCAL_CACHE_PATH, content).await?;
     Ok(())
+}
+
+#[tokio::test]
+async fn test_fetch() {
+    println!("{:#?}",get_tx(&Signature::from_str("374LS5zGJRzBCCHVjUBwgWYcv3U1BLsf5dXzvWRNjtu39egH3z7aV6Gbeb13hfnHDdQFqgY2x13NkbkjMoUrhjeG").unwrap()).await);
 }

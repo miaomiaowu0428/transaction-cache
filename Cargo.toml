@@ -12,11 +12,12 @@ serde_json = "1.0.145"
 solana-client = "3.1.4"
 solana-sdk = "3.0.0"
 solana-transaction-status-client-types = "3.1.4"
-solana-tx-parser = { version = "0.1.0", path = "../solana-tx-parser" }
+
 tokio = "1.48.0"
-utils = { version = "0.1.0", path = "../utils" }
 anyhow = "1.0.100"
 
+solana-tx-parser = { git = "https://github.com/miaomiaowu0428/solana-tx-parser.git" }
+utils = { git = "https://github.com/miaomiaowu0428/sol-utils.git" }
 
 
 [dev-dependencies]

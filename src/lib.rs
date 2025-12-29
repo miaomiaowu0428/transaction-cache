@@ -256,7 +256,7 @@ pub async fn tx_for_address(address: &Pubkey, max_count: Option<usize>) -> Resul
         before_signature = oldest_signature_in_batch;
 
         // 避免 RPC 请求过快，添加短暂休眠
-        tokio::time::sleep(Duration::from_millis(500)).await; // 同上，注意时间库的选择
+        tokio::time::sleep(Duration::from_millis(100)).await; // 同上，注意时间库的选择
     }
 
     println!("✅ 共获取到 {} 条交易签名", signatures.len());

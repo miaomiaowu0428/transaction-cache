@@ -11,8 +11,8 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::HashMap, sync::LazyLock};
+use tokio::fs;
 use tokio::sync::RwLock;
-use tokio::{fs, time};
 pub use utils::JSON_RPC_CLIENT;
 use utils::log_time;
 

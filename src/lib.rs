@@ -16,6 +16,8 @@ use tokio::sync::RwLock;
 pub use utils::JSON_RPC_CLIENT;
 use utils::log_time;
 
+pub mod akbot;
+
 /// 通过RPC获取TxDetail（可作为get_tx_detail_or_fetch的fetch回调）
 pub async fn fetch_tx_detail_from_rpc(sig: &Signature) -> anyhow::Result<Option<TxDetailLocal>> {
     let result = JSON_RPC_CLIENT

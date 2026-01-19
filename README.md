@@ -67,3 +67,56 @@ instruction!(
 );
 
 ```
+
+
+## AkBot查询
+```rust
+/// 通过akbot查询目标交易前后的对手交易
+/// 需要准备好akbot权限key
+aktool_search(param)->AktoolResponse;
+
+/// 返回结果类型如下，一般只需要关注data
+#[derive(Debug, Deserialize)]
+pub struct AktoolResponse {
+    pub code: i32,
+
+    #[serde(default)]
+    pub data: Option<Vec<TradeRecord>>,
+}
+
+/// data的原始类型如下; 语义数值类型是String
+/// 可以通过.into()将内部转换为数值类型
+#[derive(Debug, Deserialize)]
+pub struct TradeRecordRaw {
+    pub signature: String,
+
+    #[serde(rename = "signatureUser")]
+    pub signature_user: String,
+
+    pub mint: String,
+
+    pub slot: u64,
+    pub index: u32,
+
+    /// 字符串数字，防止精度问题
+    pub amount: String,
+
+    #[serde(rename = "isBuy")]
+    pub is_buy: i32,
+
+    #[serde(rename = "isSuccess")]
+    pub is_success: bool,
+
+    pub price: String,
+
+    #[serde(rename = "blockTime")]
+    pub block_time: i64,
+
+    /// 可选字段（有的失败交易可能没有）
+    #[serde(default)]
+    pub tip: Option<String>,
+
+    #[serde(default)]
+    pub gasFee: Option<String>,
+} 
+```

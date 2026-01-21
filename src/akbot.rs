@@ -1,6 +1,5 @@
 use std::sync::LazyLock;
 
-use reqwest::Client;
 
 use serde::Deserialize;
 

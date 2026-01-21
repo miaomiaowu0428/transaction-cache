@@ -1,11 +1,11 @@
 use log::info;
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::GetConfirmedSignaturesForAddress2Config;
-use solana_client::rpc_config::{RpcTransactionConfig, UiTransactionEncoding};
+use solana_client::rpc_config::{CommitmentConfig, RpcTransactionConfig, UiTransactionEncoding};
 use solana_client::rpc_response::RpcConfirmedTransactionStatusWithSignature;
 use solana_sdk::signature::Signature;
 use solana_transaction_status_client_types::{
-    EncodedConfirmedTransactionWithStatusMeta, EncodedTransactionWithStatusMeta,
+    EncodedConfirmedTransactionWithStatusMeta, EncodedTransactionWithStatusMeta, TransactionDetails, UiConfirmedBlock,
 };
 use std::path::Path;
 use std::str::FromStr;
@@ -15,7 +15,7 @@ use tokio::fs;
 use tokio::sync::RwLock;
 pub use utils::JSON_RPC_CLIENT;
 use utils::log_time;
-
+pub mod type_wraps;
 pub mod akbot;
 
 /// 通过RPC获取TxDetail（可作为get_tx_detail_or_fetch的fetch回调）
@@ -321,3 +321,17 @@ async fn test_fetch_user() {
         .await
     );
 }
+
+pub async fn get_slot(slot: u64) -> anyhow::Result<(u64,UiConfirmedBlock)>{
+    let config = solana_client::rpc_config::RpcBlockConfig {
+        encoding: UiTransactionEncoding::Json.into(),
+        transaction_details: TransactionDetails::Full.into(),
+        rewards: Some(true),
+        commitment: CommitmentConfig::confirmed().into(),
+        max_supported_transaction_version: Some(0),
+    };
+    let block = JSON_RPC_CLIENT.get_block_with_config(slot, config).await?;
+    Ok((slot,block))
+}
+
+

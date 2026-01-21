@@ -120,3 +120,15 @@ pub struct TradeRecordRaw {
     pub gasFee: Option<String>,
 } 
 ```
+
+
+## 获取区块交易
+```rust
+/// 可通过如下方式获取整个slot; 并按index获取其中交易的signature; 后可通过上述方法解析交易内容
+let slot = 394956236;
+let slot_content = get_slot(slot).await.unwrap();
+let sig = slot_content.tx_at(818).unwrap();
+let tx = get_tx(&sig).await.unwrap().unwrap();
+let ixs = parse_fetched_json(tx).await;
+info!("{ixs:#?}");
+```

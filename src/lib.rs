@@ -17,6 +17,7 @@ use tokio::sync::RwLock;
 pub use utils::JSON_RPC_CLIENT;
 use utils::log_time;
 pub mod akbot;
+pub mod tx_fetcher_v2;
 pub mod type_wraps;
 
 /// 通过RPC获取TxDetail（可作为get_tx_detail_or_fetch的fetch回调）
@@ -237,22 +238,22 @@ pub async fn tx_for_address(address: &Pubkey, max_count: Option<usize>) -> Resul
             signatures.push(sig);
 
             // 如果设置了最大条数，且已达到，直接退出循环
-            if let Some(max) = max_count {
-                if signatures.len() >= max {
-                    // 截断到最大条数
-                    signatures.truncate(max);
-                    // 标记为已达到上限，直接退出所有循环
-                    oldest_signature_in_batch = None;
-                    break;
-                }
+            if let Some(max) = max_count
+                && signatures.len() >= max
+            {
+                // 截断到最大条数
+                signatures.truncate(max);
+                // 标记为已达到上限，直接退出所有循环
+                oldest_signature_in_batch = None;
+                break;
             }
         }
 
         // 如果达到最大条数，退出外层循环
-        if let Some(max) = max_count {
-            if signatures.len() >= max {
-                break;
-            }
+        if let Some(max) = max_count
+            && signatures.len() >= max
+        {
+            break;
         }
 
         // 设置下一次查询的 before 参数

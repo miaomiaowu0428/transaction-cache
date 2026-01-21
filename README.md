@@ -132,3 +132,15 @@ let tx = get_tx(&sig).await.unwrap().unwrap();
 let ixs = parse_fetched_json(tx).await;
 info!("{ixs:#?}");
 ```
+
+## 交易获取升级版（暂未稳定）
+```rust
+/// 此方法可同时指定回溯时间和最大笔数，取先满足者
+let Ok(sigs) = SignatureFetcherBuilder::for_address(target_address)
+    .max_count(10000)
+    .max_age(Duration::from_secs(60*60))
+    .build()
+    .fetch().await else {
+        panic!("fail to fetch tx sigs for target")
+    };
+```

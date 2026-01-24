@@ -2,11 +2,12 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::GetConfirmedSignaturesForAddress2Config;
 use solana_client::rpc_config::{CommitmentConfig, RpcTransactionConfig, UiTransactionEncoding};
-use solana_client::rpc_response::RpcConfirmedTransactionStatusWithSignature;
+use solana_client::rpc_response::{OptionSerializer, RpcConfirmedTransactionStatusWithSignature};
 use solana_sdk::signature::Signature;
 use solana_transaction_status_client_types::{
-    EncodedConfirmedTransactionWithStatusMeta, EncodedTransactionWithStatusMeta,
-    TransactionDetails, UiConfirmedBlock,
+    EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
+    EncodedTransactionWithStatusMeta, TransactionDetails, UiConfirmedBlock, UiMessage,
+    UiTransaction,
 };
 use std::path::Path;
 use std::str::FromStr;
@@ -48,6 +49,15 @@ pub struct TxDetailLocal {
     #[serde(flatten)]
     pub transaction: EncodedTransactionWithStatusMeta,
     pub block_time: Option<i64>,
+}
+
+impl TxDetailLocal {
+    pub fn succeeded(&self) -> bool {
+        matches!(
+            self.transaction.meta,
+            Some(ref meta) if meta.err.is_none()
+        )
+    }
 }
 
 impl From<EncodedConfirmedTransactionWithStatusMeta> for TxDetailLocal {
@@ -334,4 +344,42 @@ pub async fn get_slot(slot: u64) -> anyhow::Result<UiConfirmedBlock> {
     };
     let block = JSON_RPC_CLIENT.get_block_with_config(slot, config).await?;
     Ok(block)
+}
+
+pub trait GetAccounts {
+    fn accounts(&self) -> Vec<Pubkey>;
+}
+
+impl GetAccounts for EncodedConfirmedTransactionWithStatusMeta {
+    fn accounts(&self) -> Vec<Pubkey> {
+        let EncodedTransaction::Json(tx) = &self.transaction.transaction else {
+            return vec![];
+        };
+        let UiMessage::Parsed(ui_tx) = &tx.message else {
+            return vec![];
+        };
+
+        ui_tx
+            .account_keys
+            .iter()
+            .map(|item| Pubkey::from_str(&item.pubkey).unwrap())
+            .collect::<Vec<Pubkey>>()
+    }
+}
+
+impl GetAccounts for TxDetailLocal {
+    fn accounts(&self) -> Vec<Pubkey> {
+        let EncodedTransaction::Json(tx) = &self.transaction.transaction else {
+            return vec![];
+        };
+        let UiMessage::Parsed(ui_tx) = &tx.message else {
+            return vec![];
+        };
+
+        ui_tx
+            .account_keys
+            .iter()
+            .map(|item| Pubkey::from_str(&item.pubkey).unwrap())
+            .collect::<Vec<Pubkey>>()
+    }
 }

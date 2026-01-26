@@ -2,17 +2,15 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::GetConfirmedSignaturesForAddress2Config;
 use solana_client::rpc_config::{CommitmentConfig, RpcTransactionConfig, UiTransactionEncoding};
-use solana_client::rpc_response::{OptionSerializer, RpcConfirmedTransactionStatusWithSignature};
+use solana_client::rpc_response::RpcConfirmedTransactionStatusWithSignature;
 use solana_sdk::signature::Signature;
 use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
     EncodedTransactionWithStatusMeta, TransactionDetails, UiConfirmedBlock, UiMessage,
-    UiTransaction,
 };
 use std::str::FromStr;
 use std::sync::LazyLock;
 use std::time::Duration;
-use tokio::sync::RwLock;
 pub use utils::JSON_RPC_CLIENT;
 use utils::log_time;
 pub mod akbot;
@@ -84,23 +82,38 @@ pub type TxDetail = TxDetailLocal;
 static DB: LazyLock<sled::Db> =
     LazyLock::new(|| sled::open("tx_cache_db").expect("Failed to open sled database"));
 
-/// 从sled数据库中获取交易详情
-fn get_from_db(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
-    let key = sig.to_string();
-    if let Some(bytes) = DB.get(key.as_bytes())? {
-        let detail: TxDetail = serde_json::from_slice(&bytes)?;
-        Ok(Some(detail))
+// 交易缓存 Tree
+static TX_TREE: LazyLock<sled::Tree> = LazyLock::new(|| {
+    DB.open_tree("transactions")
+        .expect("Failed to open transactions tree")
+});
+
+// Slot 缓存 Tree
+static SLOT_TREE: LazyLock<sled::Tree> =
+    LazyLock::new(|| DB.open_tree("slots").expect("Failed to open slots tree"));
+
+/// 通用：从 Tree 中获取数据（JSON 序列化）
+fn get_from_tree<T: serde::de::DeserializeOwned>(
+    tree: &sled::Tree,
+    key: impl AsRef<[u8]>,
+) -> anyhow::Result<Option<T>> {
+    if let Some(bytes) = tree.get(key)? {
+        let data: T = serde_json::from_slice(&bytes)?;
+        Ok(Some(data))
     } else {
         Ok(None)
     }
 }
 
-/// 将交易详情保存到sled数据库
-fn save_to_db(sig: &Signature, detail: &TxDetail) -> anyhow::Result<()> {
-    let key = sig.to_string();
-    let value = serde_json::to_vec(detail)?;
-    DB.insert(key.as_bytes(), value)?;
-    DB.flush()?; // 确保数据持久化
+/// 通用：保存数据到 Tree（JSON 序列化）
+fn save_to_tree<T: serde::Serialize>(
+    tree: &sled::Tree,
+    key: impl AsRef<[u8]>,
+    value: &T,
+) -> anyhow::Result<()> {
+    let bytes = serde_json::to_vec(value)?;
+    tree.insert(key, bytes)?;
+    tree.flush()?;
     Ok(())
 }
 
@@ -110,9 +123,10 @@ pub async fn get_tx(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
     use std::time::Duration;
     use tokio::time::sleep;
 
-    // 先尝试从数据库读取
-    if let Some(detail) = get_from_db(sig)? {
-        info!("found in cache: {sig}");
+    // 先尝试从交易缓存读取
+    let key = sig.to_string();
+    if let Some(detail) = get_from_tree::<TxDetail>(&TX_TREE, &key)? {
+        info!("found tx in cache: {sig}");
         return Ok(Some(detail));
     }
 
@@ -149,8 +163,8 @@ pub async fn get_tx(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
             }
         }
         if let Some(detail) = fetched {
-            // 保存到数据库
-            save_to_db(sig, &detail)?;
+            // 保存到交易缓存
+            save_to_tree(&TX_TREE, &key, &detail)?;
             Ok(Some(detail))
         } else {
             if let Some(e) = last_err {
@@ -165,7 +179,8 @@ pub async fn get_tx(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
 pub async fn save_cache() -> anyhow::Result<()> {
     // sled数据库会自动持久化，无需手动操作
     // 调用flush确保所有数据已写入磁盘
-    DB.flush()?;
+    TX_TREE.flush()?;
+    SLOT_TREE.flush()?;
     Ok(())
 }
 
@@ -183,7 +198,7 @@ pub async fn tx_for_address(address: &Pubkey, max_count: Option<usize>) -> Resul
         // 构建 RPC 查询配置，每次最多查 1000 条（Solana RPC 最大限制）
         let config = GetConfirmedSignaturesForAddress2Config {
             limit: Some(1000),
-            before: before_signature.clone(),
+            before: before_signature,
             until: None,
             commitment: None,
         };
@@ -222,7 +237,7 @@ pub async fn tx_for_address(address: &Pubkey, max_count: Option<usize>) -> Resul
             };
 
             // 更新当前批次最旧的签名（最后一个元素就是最旧的）
-            oldest_signature_in_batch = Some(sig.clone());
+            oldest_signature_in_batch = Some(sig);
 
             // 将签名添加到结果列表
             signatures.push(sig);
@@ -314,7 +329,64 @@ async fn test_fetch_user() {
     );
 }
 
+#[tokio::test]
+async fn test_fetch_slot() {
+    use dotenvy::dotenv;
+    use env_logger::Builder;
+    use env_logger::fmt::Formatter;
+    use std::io::Write;
+    dotenv().ok();
+    Builder::new()
+        .format(|buf: &mut Formatter, record: &log::Record| {
+            let ts = buf.timestamp_micros();
+            writeln!(
+                buf,
+                "[{} {} {}] {}",
+                ts,
+                record.level(),
+                record.target(),
+                record.args()
+            )
+        })
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
+    // 测试获取 slot（第一次会从 RPC 获取）
+    let slot = 250000000u64;
+    println!("第一次获取 slot {}...", slot);
+    let block1 = get_slot(slot).await.unwrap();
+    println!(
+        "Slot {} 包含 {} 个签名",
+        slot,
+        block1.signatures.as_ref().map(|s| s.len()).unwrap_or(0)
+    );
+
+    // 第二次应该从缓存获取
+    println!("\n第二次获取 slot {} (应该从缓存读取)...", slot);
+    let block2 = get_slot(slot).await.unwrap();
+    println!(
+        "Slot {} 包含 {} 个签名",
+        slot,
+        block2.signatures.as_ref().map(|s| s.len()).unwrap_or(0)
+    );
+
+    assert_eq!(block1.blockhash, block2.blockhash);
+}
+
+/// 查询 Slot 区块信息，优先本地缓存，不存在则自动 fetch 并写入缓存
 pub async fn get_slot(slot: u64) -> anyhow::Result<UiConfirmedBlock> {
+    use std::time::Duration;
+    use tokio::time::sleep;
+
+    // 先尝试从 slot 缓存读取
+    let key = slot.to_string();
+    if let Some(block) = get_from_tree::<UiConfirmedBlock>(&SLOT_TREE, &key)? {
+        info!("found slot {} in cache", slot);
+        return Ok(block);
+    }
+
+    // 缓存未命中，从 RPC 获取
+    info!("fetching slot {} from RPC", slot);
     let config = solana_client::rpc_config::RpcBlockConfig {
         encoding: UiTransactionEncoding::Json.into(),
         transaction_details: TransactionDetails::Signatures.into(),
@@ -322,8 +394,36 @@ pub async fn get_slot(slot: u64) -> anyhow::Result<UiConfirmedBlock> {
         commitment: CommitmentConfig::confirmed().into(),
         max_supported_transaction_version: Some(0),
     };
-    let block = JSON_RPC_CLIENT.get_block_with_config(slot, config).await?;
-    Ok(block)
+
+    // 带重试的 fetch 逻辑
+    let mut retry_times = 3;
+    let mut last_err = None;
+    let mut fetched: Option<UiConfirmedBlock> = None;
+
+    while retry_times > 0 {
+        match JSON_RPC_CLIENT.get_block_with_config(slot, config).await {
+            Ok(block) => {
+                fetched = Some(block);
+                break;
+            }
+            Err(e) => {
+                retry_times -= 1;
+                last_err = Some(e);
+                if retry_times == 0 {
+                    break;
+                }
+                sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+
+    if let Some(block) = fetched {
+        // 保存到 slot 缓存
+        save_to_tree(&SLOT_TREE, &key, &block)?;
+        Ok(block)
+    } else {
+        Err(last_err.unwrap().into())
+    }
 }
 
 pub trait GetAccounts {

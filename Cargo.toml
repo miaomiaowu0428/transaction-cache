@@ -15,6 +15,7 @@ solana-transaction-status-client-types = "3.1.7"
 
 tokio = "1.49.0"
 anyhow = "1.0.100"
+sled = "0.34"
 
 solana-tx-parser = { git = "https://github.com/miaomiaowu0428/solana-tx-parser.git" }
 utils = { git = "https://github.com/miaomiaowu0428/sol-utils.git" }

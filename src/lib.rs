@@ -9,11 +9,9 @@ use solana_transaction_status_client_types::{
     EncodedTransactionWithStatusMeta, TransactionDetails, UiConfirmedBlock, UiMessage,
     UiTransaction,
 };
-use std::path::Path;
 use std::str::FromStr;
+use std::sync::LazyLock;
 use std::time::Duration;
-use std::{collections::HashMap, sync::LazyLock};
-use tokio::fs;
 use tokio::sync::RwLock;
 pub use utils::JSON_RPC_CLIENT;
 use utils::log_time;
@@ -82,37 +80,27 @@ impl From<TxDetailLocal> for EncodedConfirmedTransactionWithStatusMeta {
 
 pub type TxDetail = TxDetailLocal;
 
-// 缓存类型
-pub static TX_DETAIL_CACHE: LazyLock<RwLock<HashMap<Signature, TxDetail>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static INITED: LazyLock<RwLock<bool>> = LazyLock::new(|| RwLock::new(false));
-const LOCAL_CACHE_PATH: &str = "allFetchedTxs.json";
+// 使用sled数据库作为存储后端
+static DB: LazyLock<sled::Db> =
+    LazyLock::new(|| sled::open("tx_cache_db").expect("Failed to open sled database"));
 
-/// 初始化缓存：从本地JSON加载HashMap<Signature, TxDetail>
-async fn init_tx_cache() -> anyhow::Result<()> {
-    let path = Path::new(LOCAL_CACHE_PATH);
-    // 新增：文件不存在则创建空的JSON文件（写入{}），并标记已初始化
-    if !path.exists() {
-        // 写入空的JSON对象，避免后续序列化/反序列化报错
-        fs::write(path, "{}").await?;
-        // 标记为已初始化，防止后续重复调用init_tx_cache
-        let mut write = INITED.write().await;
-        *write = true;
-    }
-    let mut write = INITED.write().await;
-    if *write {
-        return Ok(());
+/// 从sled数据库中获取交易详情
+fn get_from_db(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
+    let key = sig.to_string();
+    if let Some(bytes) = DB.get(key.as_bytes())? {
+        let detail: TxDetail = serde_json::from_slice(&bytes)?;
+        Ok(Some(detail))
     } else {
-        *write = true;
+        Ok(None)
     }
-    let content = fs::read_to_string(LOCAL_CACHE_PATH).await?;
-    let raw_map: HashMap<String, TxDetail> = serde_json::from_str(&content)?;
-    let mut cache = TX_DETAIL_CACHE.write().await;
-    for (k, v) in raw_map {
-        if let Ok(sig) = k.parse::<Signature>() {
-            cache.insert(sig, v);
-        }
-    }
+}
+
+/// 将交易详情保存到sled数据库
+fn save_to_db(sig: &Signature, detail: &TxDetail) -> anyhow::Result<()> {
+    let key = sig.to_string();
+    let value = serde_json::to_vec(detail)?;
+    DB.insert(key.as_bytes(), value)?;
+    DB.flush()?; // 确保数据持久化
     Ok(())
 }
 
@@ -122,16 +110,12 @@ pub async fn get_tx(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
     use std::time::Duration;
     use tokio::time::sleep;
 
-    if *INITED.read().await == false {
-        init_tx_cache().await.unwrap()
+    // 先尝试从数据库读取
+    if let Some(detail) = get_from_db(sig)? {
+        info!("found in cache: {sig}");
+        return Ok(Some(detail));
     }
 
-    let cache = TX_DETAIL_CACHE.read().await;
-    if let Some(detail) = cache.get(sig) {
-        info!("found in cache: {sig}; cache size: {}", cache.len());
-        return Ok(Some(detail.clone()));
-    }
-    drop(cache);
     // fetch with retry
     log_time!("fetching time cost: ", {
         info!("feching: {sig}");
@@ -165,11 +149,8 @@ pub async fn get_tx(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
             }
         }
         if let Some(detail) = fetched {
-            TX_DETAIL_CACHE
-                .write()
-                .await
-                .insert(sig.clone(), detail.clone());
-            save_cache().await?;
+            // 保存到数据库
+            save_to_db(sig, &detail)?;
             Ok(Some(detail))
         } else {
             if let Some(e) = last_err {
@@ -180,12 +161,11 @@ pub async fn get_tx(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
     })
 }
 
-/// 持久化缓存到本地
+/// 持久化缓存到本地（sled数据库自动持久化，这个函数保留以兼容旧接口）
 pub async fn save_cache() -> anyhow::Result<()> {
-    let cache = TX_DETAIL_CACHE.read().await;
-    let map: HashMap<String, &TxDetail> = cache.iter().map(|(k, v)| (k.to_string(), v)).collect();
-    let content = serde_json::to_string_pretty(&map)?;
-    fs::write(LOCAL_CACHE_PATH, content).await?;
+    // sled数据库会自动持久化，无需手动操作
+    // 调用flush确保所有数据已写入磁盘
+    DB.flush()?;
     Ok(())
 }
 
@@ -355,14 +335,14 @@ impl GetAccounts for EncodedConfirmedTransactionWithStatusMeta {
         let EncodedTransaction::Json(tx) = &self.transaction.transaction else {
             return vec![];
         };
-        let UiMessage::Parsed(ui_tx) = &tx.message else {
+        let UiMessage::Raw(ui_tx) = &tx.message else {
             return vec![];
         };
 
         ui_tx
             .account_keys
             .iter()
-            .map(|item| Pubkey::from_str(&item.pubkey).unwrap())
+            .map(|item| Pubkey::from_str(item).unwrap())
             .collect::<Vec<Pubkey>>()
     }
 }
@@ -372,14 +352,14 @@ impl GetAccounts for TxDetailLocal {
         let EncodedTransaction::Json(tx) = &self.transaction.transaction else {
             return vec![];
         };
-        let UiMessage::Parsed(ui_tx) = &tx.message else {
+        let UiMessage::Raw(ui_tx) = &tx.message else {
             return vec![];
         };
 
         ui_tx
             .account_keys
             .iter()
-            .map(|item| Pubkey::from_str(&item.pubkey).unwrap())
+            .map(|item| Pubkey::from_str(item).unwrap())
             .collect::<Vec<Pubkey>>()
     }
 }

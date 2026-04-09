@@ -63,7 +63,9 @@ impl SignatureFetcher {
                 signatures.extend_from_slice(&batch_sigs);
             }
 
-            if let Some(max) = self.max_count && signatures.len() >= max {
+            if let Some(max) = self.max_count
+                && signatures.len() >= max
+            {
                 signatures.truncate(max);
                 return Ok(signatures);
             }
@@ -92,7 +94,7 @@ impl SignatureFetcherBuilder {
             batch_size: 1000,
         }
     }
-    
+
     pub fn max_count(mut self, count: usize) -> Self {
         self.max_count = Some(count);
         self
@@ -101,7 +103,6 @@ impl SignatureFetcherBuilder {
         self.max_age = Some(duration);
         self
     }
-
 
     pub fn batch_size(mut self, size: usize) -> Self {
         self.batch_size = size;

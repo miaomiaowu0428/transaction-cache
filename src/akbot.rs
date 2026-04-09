@@ -1,6 +1,5 @@
 use std::sync::LazyLock;
 
-
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

@@ -4,24 +4,26 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-borsh = "1.6.0"
+borsh = "1.7"
 futures = "0.3.31"
-log = "0.4.29"
+log = "0.4.32"
 serde = "1.0.228"
-serde_json = "1.0.149"
-solana-client = "3.1.8"
-solana-sdk = "3.0.0"
-solana-transaction-status-client-types = "3.1.8"
+serde_json = "1.0.150"
+solana-client = "4.2.2"
+solana-sdk = "4.0.0"
+solana-transaction-status-client-types = { version = "4.2.2", features = ["agave-unstable-api"] }
 
-tokio = "1.49.0"
+tokio = "1.53"
 anyhow = "1.0.100"
 sled = "0.34"
 
-solana-tx-parser = { git = "https://github.com/miaomiaowu0428/solana-tx-parser.git" }
-utils = { git = "https://github.com/miaomiaowu0428/sol-utils.git" }
+solana-tx-parser = { git = "https://github.com/miaomiaowu0428/solana-tx-parser.git", branch = "supportV1" }
+utils = { git = "https://github.com/miaomiaowu0428/sol-utils.git", branch = "supportV1" }
 reqwest = { version = "0.12", features = ["rustls-tls", "json"] }
 
 
 [dev-dependencies]
 env_logger = "0.11.8"
 dotenvy = "0.15.7"
+
+[workspace]

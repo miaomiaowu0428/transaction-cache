@@ -72,6 +72,8 @@ impl From<TxDetailLocal> for EncodedConfirmedTransactionWithStatusMeta {
             slot: l.slot,
             transaction: l.transaction,
             block_time: l.block_time,
+            // solana 4.x 新增字段：交易在区块内的下标。本地缓存不记录，置 None。
+            transaction_index: None,
         }
     }
 }

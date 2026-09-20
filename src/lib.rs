@@ -24,7 +24,7 @@ pub async fn fetch_tx_detail_from_rpc(sig: &Signature) -> anyhow::Result<Option<
             sig,
             RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
-                max_supported_transaction_version: Some(0),
+                max_supported_transaction_version: Some(1),
                 commitment: None,
             },
         )
@@ -144,7 +144,7 @@ pub async fn get_tx(sig: &Signature) -> anyhow::Result<Option<TxDetail>> {
                     sig,
                     RpcTransactionConfig {
                         encoding: Some(UiTransactionEncoding::Json),
-                        max_supported_transaction_version: Some(0),
+                        max_supported_transaction_version: Some(1),
                         commitment: None,
                     },
                 )
@@ -394,7 +394,7 @@ pub async fn get_slot(slot: u64) -> anyhow::Result<UiConfirmedBlock> {
         transaction_details: TransactionDetails::Signatures.into(),
         rewards: Some(true),
         commitment: CommitmentConfig::confirmed().into(),
-        max_supported_transaction_version: Some(0),
+        max_supported_transaction_version: Some(1),
     };
 
     // 带重试的 fetch 逻辑
